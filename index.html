@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Web IPTV — an installable HLS stream player with playlist support.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="IPTV">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Web IPTV</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0c0e14;
+      color: #e2e8f0;
+      padding: 1.5rem;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .app-container {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .header-bar {
+      display: flex;
+      gap: 0.75rem;
+      width: 100%;
+    }
+    input[type="url"], input[type="text"] {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      background: #161a23;
+      border: 1px solid #282f3e;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input[type="url"]:focus, input[type="text"]:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    button {
+      padding: 0.75rem 1.5rem;
+      background-color: #3b82f6;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      white-space: nowrap;
+      transition: background-color 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background-color: #2563eb;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status-banner {
+      display: none;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      word-break: break-word;
+    }
+    .status-banner.error {
+      background-color: rgba(239, 68, 68, 0.15);
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+    }
+    .status-banner.info {
+      background-color: rgba(59, 130, 246, 0.15);
+      border: 1px solid #3b82f6;
+      color: #93c5fd;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.25rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .video-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .video-wrapper {
+      position: relative;
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+      border: 1px solid #1f2533;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .now-playing {
+      padding: 0.75rem 1rem;
+      background: #161a23;
+      border: 1px solid #282f3e;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+    .now-playing span {
+      color: #f1f5f9;
+      font-weight: 600;
+    }
+    .channels-panel {
+      background: #161a23;
+      border: 1px solid #282f3e;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 160px);
+      min-height: 480px;
+      max-height: 650px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid #282f3e;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .panel-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    .channel-count {
+      font-size: 0.75rem;
+      background: #282f3e;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      color: #94a3b8;
+    }
+    .channel-search {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+    }
+    .channel-list {
+      list-style: none;
+      overflow-y: auto;
+      flex: 1;
+      padding: 0.5rem;
+    }
+    .channel-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .channel-list::-webkit-scrollbar-thumb {
+      background: #282f3e;
+      border-radius: 3px;
+    }
+    .channel-item {
+      padding: 0.65rem 0.75rem;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.875rem;
+      color: #cbd5e1;
+      transition: background-color 0.15s, color 0.15s;
+      border: 1px solid transparent;
+    }
+    .channel-item:hover {
+      background: #1f2533;
+      color: #fff;
+    }
+    .channel-item.active {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: #3b82f6;
+      color: #60a5fa;
+      font-weight: 600;
+    }
+    .channel-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: #282f3e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .channel-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .channel-name {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+    .empty-state {
+      padding: 2rem 1rem;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.875rem;
+    }
+    .mode-selector {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    .mode-selector label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.875rem;
+      color: #94a3b8;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s;
+    }
+    .mode-selector label:hover {
+      color: #e2e8f0;
+    }
+    .mode-selector input[type="radio"] {
+      accent-color: #3b82f6;
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      flex: none;
+    }
+    .mode-selector input[type="radio"]:checked + span {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <div class="header-bar">
+      <input 
+        type="url" 
+        id="playlistUrl" 
+        placeholder="Enter .m3u or .m3u8 playlist URL..." 
+        value="https://iptv-org.github.io/iptv/languages/eng.m3u"
+      >
+      <button id="loadBtn">Load</button>
+    </div>
+    <div class="mode-selector">
+      <label>
+        <input type="radio" name="urlMode" id="modePlaylist" value="playlist" checked>
+        <span>Parse as Playlist</span>
+      </label>
+      <label>
+        <input type="radio" name="urlMode" id="modeDirect" value="direct">
+        <span>Play Direct Stream</span>
+      </label>
+    </div>
+
+    <div id="statusBanner" class="status-banner"></div>
+
+    <div class="main-grid">
+      <div class="video-section">
+        <div class="video-wrapper">
+          <video id="videoPlayer" controls playsinline></video>
+        </div>
+        <div class="now-playing">
+          Now Playing: <span id="currentChannelName">None selected</span>
+        </div>
+      </div>
+
+      <div class="channels-panel">
+        <div class="panel-header">
+          <div class="panel-title-row">
+            <span class="panel-title">Channels</span>
+            <span id="channelCount" class="channel-count">0</span>
+          </div>
+          <input 
+            type="text" 
+            id="searchInput" 
+            class="channel-search" 
+            placeholder="Search channels..."
+          >
+        </div>
+        <ul id="channelList" class="channel-list">
+          <li class="empty-state">No playlist loaded. Paste an .m3u link above and click Load.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+    const playlistInput = document.getElementById('playlistUrl');
+    const loadBtn = document.getElementById('loadBtn');
+    const searchInput = document.getElementById('searchInput');
+    const channelListEl = document.getElementById('channelList');
+    const channelCountEl = document.getElementById('channelCount');
+    const currentChannelEl = document.getElementById('currentChannelName');
+    const statusBanner = document.getElementById('statusBanner');
+    const video = document.getElementById('videoPlayer');
+    const modePlaylist = document.getElementById('modePlaylist');
+    const modeDirect = document.getElementById('modeDirect');
+
+    function getMode() {
+      return modeDirect.checked ? 'direct' : 'playlist';
+    }
+
+    let hls = null;
+    let channels = [];
+    let activeChannelUrl = null;
+
+    function showStatus(message, type = 'error') {
+      statusBanner.textContent = message;
+      statusBanner.className = `status-banner ${type}`;
+      statusBanner.style.display = 'block';
+    }
+
+    function clearStatus() {
+      statusBanner.textContent = '';
+      statusBanner.style.display = 'none';
+    }
+
+    function parseM3U(content) {
+      const lines = content.split(/\r?\n/);
+      const parsedChannels = [];
+      let currentName = '';
+      let currentLogo = '';
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        if (line.startsWith('#EXTINF:')) {
+          const commaIdx = line.lastIndexOf(',');
+          currentName = commaIdx !== -1 ? line.substring(commaIdx + 1).trim() : `Channel ${parsedChannels.length + 1}`;
+          const logoMatch = line.match(/tvg-logo="([^"]*)"/i);
+          currentLogo = logoMatch ? logoMatch[1] : '';
+        } else if (!line.startsWith('#')) {
+          if (line.startsWith('http://') || line.startsWith('https://')) {
+            parsedChannels.push({
+              name: currentName || `Channel ${parsedChannels.length + 1}`,
+              url: line,
+              logo: currentLogo
+            });
+          }
+          currentName = '';
+          currentLogo = '';
+        }
+      }
+      return parsedChannels;
+    }
+
+    function renderChannels(items) {
+      channelListEl.innerHTML = '';
+      channelCountEl.textContent = items.length;
+
+      if (items.length === 0) {
+        channelListEl.innerHTML = '<li class="empty-state">No matching channels found.</li>';
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      items.forEach(channel => {
+        const li = document.createElement('li');
+        li.className = `channel-item ${channel.url === activeChannelUrl ? 'active' : ''}`;
+        
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'channel-icon';
+        if (channel.logo) {
+          const img = document.createElement('img');
+          img.src = channel.logo;
+          img.alt = '';
+          img.loading = 'lazy';
+          img.onerror = () => { iconDiv.textContent = '📺'; };
+          iconDiv.appendChild(img);
+        } else {
+          iconDiv.textContent = '📺';
+        }
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'channel-name';
+        nameSpan.textContent = channel.name;
+
+        li.appendChild(iconDiv);
+        li.appendChild(nameSpan);
+
+        li.addEventListener('click', () => {
+          document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+          li.classList.add('active');
+          playChannel(channel);
+        });
+
+        fragment.appendChild(li);
+      });
+
+      channelListEl.appendChild(fragment);
+    }
+
+    function playChannel(channel) {
+      clearStatus();
+      activeChannelUrl = channel.url;
+      currentChannelEl.textContent = channel.name;
+
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+
+      if (Hls.isSupported()) {
+        hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true
+        });
+
+        hls.loadSource(channel.url);
+        hls.attachMedia(video);
+
+        // Clear any error UI as soon as the manifest loads successfully
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          clearStatus();
+          video.play().catch(err => console.warn('Autoplay prevented:', err));
+        });
+
+        // Track recovery attempts to avoid infinite retry loops
+        let mediaRecoveryAttempted = false;
+        let networkRetryAttempted = false;
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          // Non-fatal: hls.js handles these internally, nothing to do
+          if (!data.fatal) return;
+
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              if (!networkRetryAttempted) {
+                networkRetryAttempted = true;
+                console.warn('[hls] Fatal network error — attempting startLoad() recovery:', data.details);
+                hls.startLoad();
+              } else {
+                // Second consecutive fatal network error — give up
+                showStatus(`Network error: Stream unreachable (${data.details}). Check the URL or try another channel.`, 'error');
+                hls.destroy();
+                hls = null;
+              }
+              break;
+
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              if (!mediaRecoveryAttempted) {
+                mediaRecoveryAttempted = true;
+                console.warn('[hls] Fatal media error — attempting recoverMediaError():', data.details);
+                hls.recoverMediaError();
+              } else {
+                // recoverMediaError() already tried once, give up
+                showStatus(`Media error: Unable to decode stream (${data.details}). The stream may be unsupported.`, 'error');
+                hls.destroy();
+                hls = null;
+              }
+              break;
+
+            default:
+              showStatus(`Fatal stream error: ${data.details || 'Unknown error'}`, 'error');
+              hls.destroy();
+              hls = null;
+              break;
+          }
+        });
+
+        // Reset recovery flags when a new media segment loads cleanly
+        hls.on(Hls.Events.FRAG_LOADED, () => {
+          mediaRecoveryAttempted = false;
+          networkRetryAttempted = false;
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS fallback
+        video.src = channel.url;
+        video.addEventListener('loadedmetadata', () => {
+          clearStatus();
+          video.play().catch(err => console.warn('Autoplay prevented:', err));
+        }, { once: true });
+
+        video.onerror = () => {
+          showStatus('Playback error: Native video failed to load stream.', 'error');
+        };
+      } else {
+        showStatus('HLS playback is not supported in this browser.', 'error');
+      }
+    }
+
+
+    async function loadPlaylist() {
+      const url = playlistInput.value.trim();
+      if (!url) {
+        showStatus('Please enter a URL.', 'error');
+        return;
+      }
+
+      clearStatus();
+      loadBtn.disabled = true;
+      loadBtn.textContent = 'Loading...';
+
+      // --- Direct stream mode: bypass all fetching ---
+      if (getMode() === 'direct') {
+        channels = [];
+        renderChannels([]);
+        playChannel({ name: 'Direct Stream', url: url, logo: '' });
+        loadBtn.disabled = false;
+        loadBtn.textContent = 'Load';
+        return;
+      }
+
+      // --- Playlist mode: try direct fetch first, then CORS proxy ---
+      showStatus('Fetching playlist...', 'info');
+
+      let text = null;
+      let lastError = null;
+
+      // Attempt 1: direct fetch (works when server sends CORS headers)
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        text = await response.text();
+      } catch (directErr) {
+        lastError = directErr;
+        // Attempt 2: CORS proxy fallback
+        showStatus('Direct fetch failed — retrying via CORS proxy...', 'info');
+        try {
+          const proxyUrl = CORS_PROXY + encodeURIComponent(url);
+          const proxyResponse = await fetch(proxyUrl);
+          if (!proxyResponse.ok) throw new Error(`Proxy HTTP ${proxyResponse.status} ${proxyResponse.statusText}`);
+          text = await proxyResponse.text();
+          lastError = null;
+        } catch (proxyErr) {
+          lastError = proxyErr;
+        }
+      }
+
+      if (lastError || text === null) {
+        showStatus(`Fetch failed: ${lastError ? lastError.message : 'Unknown error'}`, 'error');
+        loadBtn.disabled = false;
+        loadBtn.textContent = 'Load';
+        return;
+      }
+
+      try {
+        channels = parseM3U(text);
+        if (channels.length === 0) {
+          throw new Error('No valid channels found. Is this really a playlist? Try "Play Direct Stream" mode.');
+        }
+        clearStatus();
+        renderChannels(channels);
+        playChannel(channels[0]);
+      } catch (parseErr) {
+        showStatus(`Parse error: ${parseErr.message}`, 'error');
+      } finally {
+        loadBtn.disabled = false;
+        loadBtn.textContent = 'Load';
+      }
+    }
+
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase();
+      const filtered = channels.filter(ch => ch.name.toLowerCase().includes(query));
+      renderChannels(filtered);
+    });
+
+    loadBtn.addEventListener('click', loadPlaylist);
+    playlistInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') loadPlaylist();
+    });
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('[SW] Registered, scope:', reg.scope))
+          .catch(err => console.warn('[SW] Registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
