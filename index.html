@@ -335,6 +335,84 @@
       font-size: 0.875rem;
     }
 
+    /* ── Category groups (<details> / <summary>) ─────────────────── */
+    .category-group {
+      margin-bottom: 2px;
+    }
+    .category-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 40px;
+      padding: 0 0.75rem;
+      background: #1a2030;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #64748b;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      list-style: none;          /* hide default triangle in Firefox */
+      transition: background 0.15s, color 0.15s;
+      /* Custom arrow via ::after */
+      gap: 0.5rem;
+    }
+    /* Hide default marker in all browsers */
+    .category-summary::-webkit-details-marker { display: none; }
+    .category-summary::marker { display: none; }
+    .category-summary:hover {
+      background: #1f2a3a;
+      color: #94a3b8;
+    }
+    .category-group[open] > .category-summary {
+      color: #60a5fa;
+      background: rgba(59, 130, 246, 0.08);
+      border-radius: 6px 6px 0 0;
+    }
+    /* Animated chevron */
+    .category-summary .chevron {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      transition: transform 0.2s;
+      opacity: 0.5;
+    }
+    .category-group[open] > .category-summary .chevron {
+      transform: rotate(90deg);
+      opacity: 1;
+    }
+    .category-label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .category-count {
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: #282f3e;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      color: #64748b;
+      flex-shrink: 0;
+    }
+    .category-group[open] > .category-summary .category-count {
+      background: rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+    }
+    /* Channel items inside an open group */
+    .category-channels {
+      list-style: none;
+      background: rgba(0,0,0,0.15);
+      border-radius: 0 0 6px 6px;
+      padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+      border-left: 2px solid rgba(59,130,246,0.15);
+      margin-bottom: 2px;
+    }
+
     /* ── Mode selector ───────────────────────────────────────────── */
     .mode-selector {
       display: flex;
@@ -494,75 +572,163 @@
 
     function parseM3U(content) {
       const lines = content.split(/\r?\n/);
-      const parsedChannels = [];
+      // grouped: Map<categoryName, channel[]>
+      const grouped = new Map();
       let currentName = '';
       let currentLogo = '';
+      let currentGroup = 'Uncategorized';
+      let pendingGroup = null; // set by #EXTGRP line
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
 
-        if (line.startsWith('#EXTINF:')) {
+        if (line.startsWith('#EXTGRP:')) {
+          // #EXTGRP is a standalone line that applies to the next entry
+          pendingGroup = line.slice(8).trim() || 'Uncategorized';
+
+        } else if (line.startsWith('#EXTINF:')) {
           const commaIdx = line.lastIndexOf(',');
-          currentName = commaIdx !== -1 ? line.substring(commaIdx + 1).trim() : `Channel ${parsedChannels.length + 1}`;
+          currentName = commaIdx !== -1
+            ? line.substring(commaIdx + 1).trim()
+            : `Channel ${grouped.size + 1}`;
+
           const logoMatch = line.match(/tvg-logo="([^"]*)"/i);
           currentLogo = logoMatch ? logoMatch[1] : '';
+
+          const groupMatch = line.match(/group-title="([^"]*)"/i);
+          // group-title attribute wins; fallback to pending #EXTGRP; then 'Uncategorized'
+          currentGroup = (groupMatch ? groupMatch[1].trim() : null)
+            || pendingGroup
+            || 'Uncategorized';
+          pendingGroup = null;
+
         } else if (!line.startsWith('#')) {
           if (line.startsWith('http://') || line.startsWith('https://')) {
-            parsedChannels.push({
-              name: currentName || `Channel ${parsedChannels.length + 1}`,
+            const group = currentGroup || 'Uncategorized';
+            if (!grouped.has(group)) grouped.set(group, []);
+            grouped.get(group).push({
+              name: currentName || `Channel ${Array.from(grouped.values()).flat().length + 1}`,
               url: line,
-              logo: currentLogo
+              logo: currentLogo,
+              group
             });
           }
           currentName = '';
           currentLogo = '';
+          currentGroup = 'Uncategorized';
+          pendingGroup = null;
         }
       }
-      return parsedChannels;
+      return grouped;
     }
 
-    function renderChannels(items) {
-      channelListEl.innerHTML = '';
-      channelCountEl.textContent = items.length;
+    /**
+     * Build a single <li class="channel-item"> DOM node.
+     */
+    function buildChannelItem(channel) {
+      const li = document.createElement('li');
+      li.className = `channel-item${channel.url === activeChannelUrl ? ' active' : ''}`;
 
-      if (items.length === 0) {
+      const iconDiv = document.createElement('div');
+      iconDiv.className = 'channel-icon';
+      if (channel.logo) {
+        const img = document.createElement('img');
+        img.src = channel.logo;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.onerror = () => { iconDiv.textContent = '📺'; };
+        iconDiv.appendChild(img);
+      } else {
+        iconDiv.textContent = '📺';
+      }
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'channel-name';
+      nameSpan.textContent = channel.name;
+
+      li.appendChild(iconDiv);
+      li.appendChild(nameSpan);
+      li.addEventListener('click', () => {
+        document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+        li.classList.add('active');
+        playChannel(channel);
+      });
+      return li;
+    }
+
+    /**
+     * Render channels grouped by category using <details>/<summary>.
+     * @param {Map<string, object[]>|object[]} source
+     *   Pass the full grouped Map for normal render,
+     *   or a flat array (search results) to render as a single flat list.
+     */
+    function renderChannels(source) {
+      channelListEl.innerHTML = '';
+
+      // Flatten to count total channels
+      const allItems = Array.isArray(source)
+        ? source
+        : Array.from(source.values()).flat();
+
+      channelCountEl.textContent = allItems.length;
+
+      if (allItems.length === 0) {
         channelListEl.innerHTML = '<li class="empty-state">No matching channels found.</li>';
         return;
       }
 
       const fragment = document.createDocumentFragment();
-      items.forEach(channel => {
-        const li = document.createElement('li');
-        li.className = `channel-item ${channel.url === activeChannelUrl ? 'active' : ''}`;
-        
-        const iconDiv = document.createElement('div');
-        iconDiv.className = 'channel-icon';
-        if (channel.logo) {
-          const img = document.createElement('img');
-          img.src = channel.logo;
-          img.alt = '';
-          img.loading = 'lazy';
-          img.onerror = () => { iconDiv.textContent = '📺'; };
-          iconDiv.appendChild(img);
-        } else {
-          iconDiv.textContent = '📺';
-        }
 
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'channel-name';
-        nameSpan.textContent = channel.name;
+      if (Array.isArray(source)) {
+        // Flat list (search results) — no category grouping
+        source.forEach(ch => fragment.appendChild(buildChannelItem(ch)));
+        channelListEl.appendChild(fragment);
+        return;
+      }
 
-        li.appendChild(iconDiv);
-        li.appendChild(nameSpan);
+      // Grouped render
+      source.forEach((items, groupName) => {
+        const details = document.createElement('details');
+        details.className = 'category-group';
+        // Auto-open the first group
+        if (fragment.childElementCount === 0) details.open = true;
 
-        li.addEventListener('click', () => {
-          document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
-          li.classList.add('active');
-          playChannel(channel);
-        });
+        const summary = document.createElement('summary');
+        summary.className = 'category-summary';
 
-        fragment.appendChild(li);
+        // Chevron SVG
+        const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chevron.setAttribute('viewBox', '0 0 24 24');
+        chevron.setAttribute('fill', 'none');
+        chevron.setAttribute('stroke', 'currentColor');
+        chevron.setAttribute('stroke-width', '2.5');
+        chevron.setAttribute('stroke-linecap', 'round');
+        chevron.setAttribute('stroke-linejoin', 'round');
+        chevron.classList.add('chevron');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M9 18l6-6-6-6');
+        chevron.appendChild(path);
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'category-label';
+        labelSpan.textContent = groupName;
+
+        const countBadge = document.createElement('span');
+        countBadge.className = 'category-count';
+        countBadge.textContent = items.length;
+
+        summary.appendChild(chevron);
+        summary.appendChild(labelSpan);
+        summary.appendChild(countBadge);
+        details.appendChild(summary);
+
+        const ul = document.createElement('ul');
+        ul.className = 'category-channels';
+        items.forEach(ch => ul.appendChild(buildChannelItem(ch)));
+        details.appendChild(ul);
+
+        fragment.appendChild(details);
       });
 
       channelListEl.appendChild(fragment);
@@ -723,13 +889,14 @@
       }
 
       try {
-        channels = parseM3U(text);
-        if (channels.length === 0) {
+        channels = parseM3U(text); // now a Map<group, channel[]>
+        const allChannels = Array.from(channels.values()).flat();
+        if (allChannels.length === 0) {
           throw new Error('No valid channels found. Is this really a playlist? Try "Play Direct Stream" mode.');
         }
         clearStatus();
         renderChannels(channels);
-        playChannel(channels[0]);
+        playChannel(allChannels[0]);
       } catch (parseErr) {
         showStatus(`Parse error: ${parseErr.message}`, 'error');
       } finally {
@@ -739,8 +906,17 @@
     }
 
     searchInput.addEventListener('input', (e) => {
-      const query = e.target.value.toLowerCase();
-      const filtered = channels.filter(ch => ch.name.toLowerCase().includes(query));
+      const query = e.target.value.toLowerCase().trim();
+      if (!query) {
+        // Restore full grouped view when search is cleared
+        renderChannels(channels);
+        return;
+      }
+      // Flatten all channels and filter by name
+      const allChannels = Array.isArray(channels)
+        ? channels
+        : Array.from(channels.values()).flat();
+      const filtered = allChannels.filter(ch => ch.name.toLowerCase().includes(query));
       renderChannels(filtered);
     });
 
