@@ -328,7 +328,39 @@
   </div>
 
   <script>
-    const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+    // Ordered list of CORS proxies tried in sequence.
+    // Each entry: { build: (url) => proxyUrl, label: string }
+    const CORS_PROXIES = [
+      {
+        label: 'corsproxy.io',
+        build: (url) => 'https://corsproxy.io/?' + encodeURIComponent(url)
+      },
+      {
+        label: 'codetabs',
+        build: (url) => 'https://api.codetabs.com/v1/proxy?quest=' + url
+      }
+    ];
+
+    const FETCH_TIMEOUT_MS = 10000; // 10 s per attempt
+
+    /**
+     * fetch() with an AbortController timeout.
+     * Throws on HTTP error, timeout, or network failure.
+     */
+    async function fetchWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        return res;
+      } catch (err) {
+        if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs / 1000}s`);
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
 
     const playlistInput = document.getElementById('playlistUrl');
     const loadBtn = document.getElementById('loadBtn');
@@ -548,34 +580,43 @@
         return;
       }
 
-      // --- Playlist mode: try direct fetch first, then CORS proxy ---
+      // --- Playlist mode: try direct fetch first, then each CORS proxy ---
       showStatus('Fetching playlist...', 'info');
 
       let text = null;
       let lastError = null;
 
-      // Attempt 1: direct fetch (works when server sends CORS headers)
+      // Attempt 1: direct fetch (succeeds when server sends CORS headers)
       try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        const response = await fetchWithTimeout(url);
         text = await response.text();
       } catch (directErr) {
         lastError = directErr;
-        // Attempt 2: CORS proxy fallback
-        showStatus('Direct fetch failed — retrying via CORS proxy...', 'info');
-        try {
-          const proxyUrl = CORS_PROXY + encodeURIComponent(url);
-          const proxyResponse = await fetch(proxyUrl);
-          if (!proxyResponse.ok) throw new Error(`Proxy HTTP ${proxyResponse.status} ${proxyResponse.statusText}`);
-          text = await proxyResponse.text();
-          lastError = null;
-        } catch (proxyErr) {
-          lastError = proxyErr;
+      }
+
+      // Attempt 2…N: try each proxy in order until one works
+      if (text === null) {
+        for (const proxy of CORS_PROXIES) {
+          showStatus(`Direct fetch failed — retrying via ${proxy.label}...`, 'info');
+          try {
+            const proxyResponse = await fetchWithTimeout(proxy.build(url));
+            text = await proxyResponse.text();
+            lastError = null;
+            break; // success — stop trying more proxies
+          } catch (proxyErr) {
+            lastError = proxyErr;
+            console.warn(`[proxy:${proxy.label}] failed:`, proxyErr.message);
+          }
         }
       }
 
-      if (lastError || text === null) {
-        showStatus(`Fetch failed: ${lastError ? lastError.message : 'Unknown error'}`, 'error');
+      // All attempts exhausted — always reset UI to a final error state
+      if (text === null) {
+        showStatus(
+          `Fetch failed: ${lastError ? lastError.message : 'Unknown error'}. ` +
+          'Check the URL or try "Play Direct Stream" mode.',
+          'error'
+        );
         loadBtn.disabled = false;
         loadBtn.textContent = 'Load';
         return;
