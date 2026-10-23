@@ -427,15 +427,17 @@
 
   <script>
     // Ordered list of CORS proxies tried in sequence.
+    // codetabs is primary — handles Mixed Content (HTTP→HTTPS) reliably.
+    // corsproxy.io is the secondary fallback.
     // Each entry: { build: (url) => proxyUrl, label: string }
     const CORS_PROXIES = [
       {
-        label: 'corsproxy.io',
-        build: (url) => 'https://corsproxy.io/?' + encodeURIComponent(url)
+        label: 'codetabs',
+        build: (url) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url)
       },
       {
-        label: 'codetabs',
-        build: (url) => 'https://api.codetabs.com/v1/proxy?quest=' + url
+        label: 'corsproxy.io',
+        build: (url) => 'https://corsproxy.io/?' + encodeURIComponent(url)
       }
     ];
 
