@@ -1,24 +1,38 @@
 {
-  "name": "Web IPTV",
-  "short_name": "IPTV",
-  "description": "An installable HLS stream player with M3U playlist support.",
+  "name": "Car Web IPTV",
+  "short_name": "CarIPTV",
+  "description": "Автомобильный IPTV-плеер с поддержкой M3U8 плейлистов, PWA и Android Auto.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0c0e14",
-  "theme_color": "#000000",
-  "orientation": "any",
+  "theme_color": "#0c0e14",
+  "orientation": "landscape",
+  "lang": "ru",
+  "categories": ["entertainment", "utilities"],
   "icons": [
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

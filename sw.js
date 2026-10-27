@@ -1,17 +1,18 @@
-// sw.js — Web IPTV Service Worker
-// Caches the app shell for instant offline load.
-// Live HLS streams are always fetched from the network.
+// sw.js — Car Web IPTV Service Worker v2
+// Кеширует только оболочку (App Shell).
+// Потоки, плейлисты, прокси — всегда из сети.
 
-const CACHE_NAME = 'web-iptv-shell-v1';
+const CACHE_NAME = 'car-iptv-shell-v3';
 
-// App shell: everything needed to render the UI without a network roundtrip
+// Ресурсы App Shell для мгновенного старта
 const SHELL_ASSETS = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './epg-worker.js'
 ];
 
-// ── Install: pre-cache the app shell ────────────────────────────────────────
+// ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
@@ -19,11 +20,10 @@ self.addEventListener('install', event => {
       return cache.addAll(SHELL_ASSETS);
     })
   );
-  // Activate immediately without waiting for old tabs to close
   self.skipWaiting();
 });
 
-// ── Activate: delete stale caches from previous versions ────────────────────
+// ── Activate ─────────────────────────────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -37,42 +37,43 @@ self.addEventListener('activate', event => {
       )
     )
   );
-  // Take control of all open clients immediately
   self.clients.claim();
 });
 
-// ── Fetch: network-first for streams, cache-first for shell ─────────────────
+// ── Fetch ────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  const url = new URL(req.url);
 
-  // Always bypass the cache for:
-  //  • HLS media (.m3u8, .ts segments)
-  //  • CORS proxies
-  //  • CDN scripts (hls.js)
-  //  • Cross-origin requests in general
-  const isMediaSegment  = /\.(m3u8?|ts)(\?|$)/i.test(url.pathname);
-  const isCorsProxy     = url.hostname.includes('allorigins.win');
-  const isCDN           = url.hostname.includes('cdn.jsdelivr.net');
-  const isCrossOrigin   = url.origin !== self.location.origin;
+  // Не кешируем:
+  // 1. HLS сегменты и плейлисты (.m3u8, .ts)
+  // 2. CORS-прокси (codetabs, corsproxy.io, allorigins)
+  // 3. CDN-скрипты (hls.js)
+  // 4. Любые cross-origin запросы
+  const isMediaSegment = /\.(m3u8?|ts)(\?|$)/i.test(url.pathname);
+  const isCorsProxy    = /codetabs\.com|corsproxy\.io|allorigins\.win|cors\.sh/i.test(url.hostname);
+  const isCDN          = url.hostname.includes('cdn.jsdelivr.net');
+  const isCrossOrigin  = url.origin !== self.location.origin;
+  // Не кешируем POST-запросы
+  const isNotGet       = req.method !== 'GET';
 
-  if (isMediaSegment || isCorsProxy || isCDN || isCrossOrigin) {
-    // Pure network fetch — no caching
-    event.respondWith(fetch(event.request));
+  if (isMediaSegment || isCorsProxy || isCDN || isCrossOrigin || isNotGet) {
+    event.respondWith(fetch(req));
     return;
   }
 
-  // App shell: cache-first, fall back to network
+  // App Shell: cache-first → network fallback
   event.respondWith(
-    caches.match(event.request).then(cached => {
+    caches.match(req).then(cached => {
       if (cached) return cached;
-      return fetch(event.request).then(response => {
-        // Cache successful same-origin responses
-        if (response && response.status === 200) {
+      return fetch(req).then(response => {
+        if (response && response.status === 200 && response.type === 'basic') {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         }
         return response;
       });
-    })
+    }).catch(() => caches.match('./index.html'))
   );
 });
+
