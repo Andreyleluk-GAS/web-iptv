@@ -2,6 +2,7 @@
 /* global self, importScripts, TextDecoder */
 
 const CORS_PROXIES = [
+  { label: 'cloudflare',   build: u => 'https://web-iptv.andreyleluk.workers.dev/proxy?url=' + encodeURIComponent(u) },
   { label: 'codetabs',     build: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
   { label: 'allorigins',   build: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) }
 ];

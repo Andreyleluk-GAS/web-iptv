@@ -2,7 +2,7 @@
 // Кеширует только оболочку (App Shell).
 // Потоки, плейлисты, прокси — всегда из сети.
 
-const CACHE_NAME = 'car-iptv-shell-v3';
+const CACHE_NAME = 'car-iptv-shell-v4';
 
 // Ресурсы App Shell для мгновенного старта
 const SHELL_ASSETS = [
@@ -47,11 +47,11 @@ self.addEventListener('fetch', event => {
 
   // Не кешируем:
   // 1. HLS сегменты и плейлисты (.m3u8, .ts)
-  // 2. CORS-прокси (codetabs, corsproxy.io, allorigins)
+  // 2. CORS-прокси (codetabs, corsproxy.io, allorigins, workers.dev)
   // 3. CDN-скрипты (hls.js)
   // 4. Любые cross-origin запросы
   const isMediaSegment = /\.(m3u8?|ts)(\?|$)/i.test(url.pathname);
-  const isCorsProxy    = /codetabs\.com|corsproxy\.io|allorigins\.win|cors\.sh/i.test(url.hostname);
+  const isCorsProxy    = /codetabs\.com|corsproxy\.io|allorigins\.win|cors\.sh|workers\.dev/i.test(url.hostname);
   const isCDN          = url.hostname.includes('cdn.jsdelivr.net');
   const isCrossOrigin  = url.origin !== self.location.origin;
   // Не кешируем POST-запросы
