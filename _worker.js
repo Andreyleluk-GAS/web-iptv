@@ -3,7 +3,21 @@
  * 1. Serves static assets (index.html, manifest.json, sw.js, epg-worker.js, icons).
  * 2. Implements /proxy?url=<target_url> to bypass CORS and Mixed Content (HTTPS -> HTTP).
  * 3. Rewrites .m3u8 playlists so all chunk URLs route through /proxy over HTTPS.
+ * 4. Automatically maps raw IPv4 addresses to <ip>.sslip.io to prevent Cloudflare Error 1003.
  */
+
+function sanitizeUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    // If hostname is raw IPv4, convert to <ip>.sslip.io to bypass Cloudflare Error 1003
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) {
+      u.hostname = `${u.hostname}.sslip.io`;
+    }
+    return u.href;
+  } catch (_) {
+    return rawUrl;
+  }
+}
 
 export default {
   async fetch(request, env) {
@@ -11,8 +25,8 @@ export default {
 
     // ── 1. CORS & Mixed-Content Proxy Endpoint ──────────────────────────────
     if (url.pathname === '/proxy') {
-      const targetUrl = url.searchParams.get('url');
-      if (!targetUrl) {
+      const rawTarget = url.searchParams.get('url');
+      if (!rawTarget) {
         return new Response('Missing "url" parameter', {
           status: 400,
           headers: { 'Access-Control-Allow-Origin': '*' },
@@ -31,6 +45,8 @@ export default {
           },
         });
       }
+
+      const targetUrl = sanitizeUrl(rawTarget);
 
       try {
         const fetchHeaders = new Headers();
@@ -84,25 +100,20 @@ export default {
           if (text.includes('#EXTM3U')) {
             const proxyBase = `${url.origin}/proxy?url=`;
             const lines = text.split('\n');
+
+            // Helper to resolve URL and convert raw IPv4 to .sslip.io
+            const resolveUrl = raw => {
+              try {
+                const resolved = new URL(raw, targetUrl).href;
+                return sanitizeUrl(resolved);
+              } catch (_) {
+                return raw;
+              }
+            };
+
             const rewritten = lines.map(line => {
               const trimmed = line.trim();
               if (!trimmed) return line;
-
-              // Helper to resolve URL and avoid raw IPv4 blocks (Cloudflare Error 1003)
-              const resolveUrl = raw => {
-                try {
-                  const targetParsed = new URL(targetUrl);
-                  const parsed = new URL(raw, targetUrl);
-                  // If resolved URL uses raw IPv4 but targetUrl had a hostname, preserve hostname
-                  if (/^\d+\.\d+\.\d+\.\d+$/.test(parsed.hostname) && !/^\d+\.\d+\.\d+\.\d+$/.test(targetParsed.hostname)) {
-                    parsed.protocol = targetParsed.protocol;
-                    parsed.host = targetParsed.host;
-                  }
-                  return parsed.href;
-                } catch (_) {
-                  return raw;
-                }
-              };
 
               // Rewrite URI in tags (e.g. #EXT-X-KEY:METHOD=...,URI="...")
               if (trimmed.startsWith('#')) {
@@ -134,6 +145,11 @@ export default {
               headers: outHeaders,
             });
           }
+        }
+
+        // For TS video chunks, ensure proper video/mp2t MIME type
+        if (targetUrl.includes('.ts') && (!outHeaders.has('content-type') || outHeaders.get('content-type').includes('text'))) {
+          outHeaders.set('Content-Type', 'video/mp2t');
         }
 
         // Binary streaming (video .ts segments, gzipped EPG, channel icons)
