@@ -2,7 +2,7 @@
 // Кеширует только оболочку (App Shell).
 // Потоки, плейлисты, прокси — всегда из сети.
 
-const CACHE_NAME = 'car-iptv-shell-v5';
+const CACHE_NAME = 'car-iptv-shell-v6';
 
 // Ресурсы App Shell для мгновенного старта
 const SHELL_ASSETS = [

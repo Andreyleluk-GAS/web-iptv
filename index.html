@@ -152,7 +152,18 @@
       overflow: hidden;
       cursor: pointer;
     }
-    video { width: 100%; height: 100%; display: block; object-fit: contain; }
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      transition: object-fit 0.2s ease, transform 0.2s ease;
+    }
+    video.scale-contain { object-fit: contain; width: 100%; height: 100%; }
+    video.scale-cover   { object-fit: cover; width: 100%; height: 100%; }
+    video.scale-fill    { object-fit: fill; width: 100%; height: 100%; }
+    video.scale-16-9    { object-fit: fill; max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; margin: auto; }
+    video.scale-4-3     { object-fit: fill; max-width: 100%; max-height: 100%; aspect-ratio: 4 / 3; margin: auto; }
 
     /* Spinner */
     .video-spinner {
@@ -976,10 +987,62 @@
       background-color: #fff;
     }
 
-    /* ── RESPONSIVE ─────────────────────────────────────────────────────────── */
+    .setting-select {
+      height: 38px;
+      padding: 0 12px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.82rem;
+      outline: none;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color var(--tr);
+    }
+    .setting-select:focus {
+      border-color: var(--accent);
+    }
+
+    /* ── RESPONSIVE & CAR HEAD UNIT (МАГНИТОЛА) ──────────────────────────────── */
     @media (max-width: 599px) {
       :root { --sidebar-w: 100vw; }
       .sidebar { position: absolute; right: 0; top: 0; height: 100%; z-index: 20; }
+    }
+
+    /* Компактный режим для экранов магнитол и ландшафтного режима (высота <= 620px) */
+    @media (max-height: 620px) and (orientation: landscape) {
+      .topbar {
+        padding: 4px 10px;
+        height: 44px;
+      }
+      .topbar .url-input {
+        height: 36px;
+        font-size: 0.78rem;
+      }
+      .topbar .btn {
+        height: 36px;
+        padding: 0 12px;
+        font-size: 0.8rem;
+      }
+      .topbar .btn-icon {
+        width: 36px;
+      }
+      .now-playing-bar {
+        height: 42px;
+        padding: 0 8px;
+      }
+      .btn-np {
+        width: 36px;
+        height: 36px;
+      }
+      .osd-ch-num {
+        font-size: 1.3rem;
+      }
+      .osd-ch-name {
+        font-size: 0.95rem;
+      }
     }
   </style>
 </head>
@@ -1069,6 +1132,9 @@
         </button>
         <button class="btn-np" id="btnNext" title="След. канал">
           <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button class="btn-np" id="btnScale" title="Масштаб экрана (магнитола/телефон)">
+          <svg viewBox="0 0 24 24"><path d="M19 12h-2v3h-3v2h5v-5zM7 9h3V7H5v5h2V9zm14-6H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/></svg>
         </button>
         <button class="btn-np" id="btnFullscreen" title="Полный экран">
           <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
@@ -1171,6 +1237,23 @@
       <button class="modal-close" id="settingsModalClose" aria-label="Закрыть">✕</button>
     </div>
     <div class="modal-body">
+
+      <div class="setting-item">
+        <div class="setting-text">
+          <div class="setting-label">Масштаб экрана (Магнитола / Телефон)</div>
+          <div class="setting-desc">Устраняет черные полосы при зеркалировании экрана телефона на магнитолу с другим соотношением сторон.</div>
+        </div>
+        <select id="scaleModeSelect" class="setting-select" aria-label="Масштаб экрана">
+          <option value="contain">Вписать (По размеру)</option>
+          <option value="cover">Заполнение (Без полос / Зум)</option>
+          <option value="fill">Растянуть (100% экрана)</option>
+          <option value="16-9">Формат 16:9</option>
+          <option value="4-3">Формат 4:3</option>
+        </select>
+      </div>
+
+      <div class="setting-divider"></div>
+
       <div class="setting-item">
         <div class="setting-text">
           <div class="setting-label">Режим слабого устройства</div>
@@ -1183,6 +1266,7 @@
       </div>
 
       <div class="setting-divider"></div>
+
 
       <div class="setting-item">
         <div class="setting-text">
@@ -1209,7 +1293,18 @@ const LS_FAV       = 'car_iptv_favorites';
 const LS_LAST      = 'car_iptv_last_channel';
 const LS_EPG_URL   = 'car_iptv_epg_url';
 const LS_LOW_PERF  = 'car_iptv_low_perf';
+const LS_SCALE     = 'car_iptv_scale_mode';
 const FETCH_TO     = 14000;  // ms
+
+// Video scaling modes for car head units & phone displays
+const SCALE_MODES = [
+  { id: 'contain', label: 'Вписать (По размеру)' },
+  { id: 'cover',   label: 'Заполнение экрана (Без полос)' },
+  { id: 'fill',    label: 'Растянуть (100% экрана)' },
+  { id: '16-9',    label: 'Формат 16:9' },
+  { id: '4-3',     label: 'Формат 4:3' },
+];
+let currentScaleIndex = 0;
 
 // EPG Sources & Fallbacks (HTTPS to prevent mixed-content blocks)
 const EPG_PRIMARY_URL = 'https://epg.it999.ru/epg2.xml.gz';
@@ -1313,6 +1408,7 @@ const npEpgLine        = document.getElementById('npEpgLine');
 const npEpgInfoBtn     = document.getElementById('npEpgInfoBtn');
 const btnPrev          = document.getElementById('btnPrev');
 const btnNext          = document.getElementById('btnNext');
+const btnScale         = document.getElementById('btnScale');
 const btnFullscreen    = document.getElementById('btnFullscreen');
 const toast            = document.getElementById('toast');
 
@@ -1330,6 +1426,7 @@ const epgModalNext     = document.getElementById('epgModalNext');
 
 const settingsModal    = document.getElementById('settingsModal');
 const settingsModalClose = document.getElementById('settingsModalClose');
+const scaleModeSelect  = document.getElementById('scaleModeSelect');
 const lowPerfToggle    = document.getElementById('lowPerfToggle');
 const btnReloadEpg     = document.getElementById('btnReloadEpg');
 const epgStatsText     = document.getElementById('epgStatsText');
@@ -2446,6 +2543,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowUp'   || e.key === 'PageUp')   { prevChannel(); return; }
   if (e.key === 'ArrowDown' || e.key === 'PageDown')  { nextChannel(); return; }
   if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); return; }
+  if (e.key === 's' || e.key === 'S' || e.key === 'a' || e.key === 'A') { cycleScaleMode(); return; }
   if (e.key === 'i' || e.key === 'I') {
     if (activeChannel) showOsd(activeChannel);
     return;
@@ -2703,15 +2801,85 @@ btnPrev.addEventListener('click', prevChannel);
 btnNext.addEventListener('click', nextChannel);
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// VIDEO SCALING & CAR DISPLAY (МАГНИТОЛА) ADAPTATION
+// ═══════════════════════════════════════════════════════════════════════════════
+function applyScaleMode(modeId, showNotification = false) {
+  const mode = SCALE_MODES.find(m => m.id === modeId) || SCALE_MODES[0];
+  currentScaleIndex = SCALE_MODES.findIndex(m => m.id === mode.id);
+
+  videoPlayer.classList.remove('scale-contain', 'scale-cover', 'scale-fill', 'scale-16-9', 'scale-4-3');
+  videoPlayer.classList.add('scale-' + mode.id);
+
+  localStorage.setItem(LS_SCALE, mode.id);
+  if (scaleModeSelect && scaleModeSelect.value !== mode.id) {
+    scaleModeSelect.value = mode.id;
+  }
+  if (showNotification) {
+    showToast(`📐 Масштаб: ${mode.label}`);
+  }
+}
+
+function cycleScaleMode() {
+  currentScaleIndex = (currentScaleIndex + 1) % SCALE_MODES.length;
+  const nextMode = SCALE_MODES[currentScaleIndex];
+  applyScaleMode(nextMode.id, true);
+}
+
+if (btnScale) {
+  btnScale.addEventListener('click', cycleScaleMode);
+}
+if (scaleModeSelect) {
+  scaleModeSelect.addEventListener('change', e => {
+    applyScaleMode(e.target.value, true);
+  });
+}
+
+// Auto-adapt to display size changes (e.g. phone mirroring to car head unit or orientation change)
+function handleDisplayChange() {
+  const savedMode = localStorage.getItem(LS_SCALE) || 'contain';
+  applyScaleMode(savedMode, false);
+}
+window.addEventListener('resize', handleDisplayChange);
+window.addEventListener('orientationchange', () => setTimeout(handleDisplayChange, 250));
+if (screen.orientation) {
+  screen.orientation.addEventListener('change', () => setTimeout(handleDisplayChange, 250));
+}
+if (window.ResizeObserver && videoWrapper) {
+  const ro = new ResizeObserver(() => handleDisplayChange());
+  ro.observe(videoWrapper);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // FULLSCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    (videoWrapper.requestFullscreen || videoWrapper.webkitRequestFullscreen ||
-     videoWrapper.mozRequestFullScreen).call(videoWrapper);
-  } else {
-    (document.exitFullscreen || document.webkitExitFullscreen ||
-     document.mozCancelFullScreen).call(document);
+async function toggleFullscreen() {
+  try {
+    if (!document.fullscreenElement) {
+      if (videoWrapper.requestFullscreen) {
+        await videoWrapper.requestFullscreen();
+      } else if (videoWrapper.webkitRequestFullscreen) {
+        await videoWrapper.webkitRequestFullscreen();
+      } else if (videoWrapper.mozRequestFullScreen) {
+        await videoWrapper.mozRequestFullScreen();
+      }
+      // Force phone to landscape orientation so car head unit mirroring displays full width
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    } else {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        await document.webkitExitFullscreen();
+      } else if (document.mozCancelFullScreen) {
+        await document.mozCancelFullScreen();
+      }
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock();
+      }
+    }
+  } catch (err) {
+    console.warn('[Fullscreen] Error:', err);
   }
 }
 btnFullscreen.addEventListener('click', toggleFullscreen);
@@ -2896,6 +3064,9 @@ videoPlayer.addEventListener('playing', () => {
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 (function init() {
+  const savedScale = localStorage.getItem(LS_SCALE) || 'contain';
+  applyScaleMode(savedScale, false);
+
   const savedUrl = localStorage.getItem(LS_URL) || DEFAULT_PLAYLIST;
   urlInput.value = savedUrl;
   loadPlaylist(savedUrl);
