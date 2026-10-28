@@ -88,28 +88,36 @@ export default {
               const trimmed = line.trim();
               if (!trimmed) return line;
 
+              // Helper to resolve URL and avoid raw IPv4 blocks (Cloudflare Error 1003)
+              const resolveUrl = raw => {
+                try {
+                  const targetParsed = new URL(targetUrl);
+                  const parsed = new URL(raw, targetUrl);
+                  // If resolved URL uses raw IPv4 but targetUrl had a hostname, preserve hostname
+                  if (/^\d+\.\d+\.\d+\.\d+$/.test(parsed.hostname) && !/^\d+\.\d+\.\d+\.\d+$/.test(targetParsed.hostname)) {
+                    parsed.protocol = targetParsed.protocol;
+                    parsed.host = targetParsed.host;
+                  }
+                  return parsed.href;
+                } catch (_) {
+                  return raw;
+                }
+              };
+
               // Rewrite URI in tags (e.g. #EXT-X-KEY:METHOD=...,URI="...")
               if (trimmed.startsWith('#')) {
                 if (trimmed.includes('URI=')) {
                   return line.replace(/URI="([^"]+)"/g, (match, uri) => {
-                    try {
-                      const fullUri = new URL(uri, targetUrl).href;
-                      return `URI="${proxyBase}${encodeURIComponent(fullUri)}"`;
-                    } catch (_) {
-                      return match;
-                    }
+                    const fullUri = resolveUrl(uri);
+                    return `URI="${proxyBase}${encodeURIComponent(fullUri)}"`;
                   });
                 }
                 return line;
               }
 
               // Segment or variant stream URL line
-              try {
-                const fullUrl = new URL(trimmed, targetUrl).href;
-                return `${proxyBase}${encodeURIComponent(fullUrl)}`;
-              } catch (_) {
-                return line;
-              }
+              const fullUrl = resolveUrl(trimmed);
+              return `${proxyBase}${encodeURIComponent(fullUrl)}`;
             }).join('\n');
 
             outHeaders.set('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
