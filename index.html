@@ -1051,6 +1051,9 @@
 <!-- ── TOP BAR ──────────────────────────────────────────────────────────────── -->
 <div class="topbar">
   <div class="topbar-logo">Car<span>IPTV</span></div>
+  <button class="btn btn-ghost" id="btnCarModeToggle" title="Быстрое переключение: Смартфон / Магнитола" style="height:var(--touch);padding:0 12px;font-size:0.8rem;gap:6px;">
+    🚗 Магнитола
+  </button>
   <input type="url" id="urlInput" class="url-input"
     placeholder="M3U8 плейлист URL..." autocomplete="off" spellcheck="false">
   <button class="btn btn-primary" id="loadBtn">▶ Загрузить</button>
@@ -1240,16 +1243,25 @@
 
       <div class="setting-item">
         <div class="setting-text">
-          <div class="setting-label">Масштаб экрана (Магнитола / Телефон)</div>
-          <div class="setting-desc">Устраняет черные полосы при зеркалировании экрана телефона на магнитолу с другим соотношением сторон.</div>
+          <div class="setting-label">Режим отображения (Магнитола / Зеркалирование)</div>
+          <div class="setting-desc">Авто-компенсация устраняет двойные черные полосы при зеркалировании экрана смартфона на магнитолу авто.</div>
         </div>
         <select id="scaleModeSelect" class="setting-select" aria-label="Масштаб экрана">
-          <option value="contain">Вписать (По размеру)</option>
-          <option value="cover">Заполнение (Без полос / Зум)</option>
-          <option value="fill">Растянуть (100% экрана)</option>
-          <option value="16-9">Формат 16:9</option>
-          <option value="4-3">Формат 4:3</option>
+          <option value="phone-contain">📱 Телефон: По размеру (Вписать)</option>
+          <option value="phone-cover">📱 Телефон: Заполнение (Зум без полос)</option>
+          <option value="car-16-9">🚗 Магнитола: 16:9 (Авто-компенсация)</option>
+          <option value="car-1024">🚗 Магнитола: 1024×600 (Штатная Android)</option>
+          <option value="car-fill">🚗 Магнитола: Растянуть на 100%</option>
+          <option value="tv-4-3">📺 Телеформат 4:3 (Ретро)</option>
         </select>
+      </div>
+
+      <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="setting-label" style="font-size: 0.85rem;">Точная калибровка масштаба (зум)</span>
+          <span id="customZoomVal" style="font-weight: 700; color: var(--accent); font-size: 0.85rem;">100%</span>
+        </div>
+        <input type="range" id="customZoomSlider" min="0.80" max="1.60" step="0.02" value="1.0" style="width: 100%; accent-color: var(--accent); cursor: pointer; height: 32px;">
       </div>
 
       <div class="setting-divider"></div>
@@ -1293,16 +1305,18 @@ const LS_FAV       = 'car_iptv_favorites';
 const LS_LAST      = 'car_iptv_last_channel';
 const LS_EPG_URL   = 'car_iptv_epg_url';
 const LS_LOW_PERF  = 'car_iptv_low_perf';
-const LS_SCALE     = 'car_iptv_scale_mode';
-const FETCH_TO     = 14000;  // ms
+const LS_SCALE      = 'car_iptv_scale_mode';
+const LS_CUSTOM_ZOOM = 'car_iptv_custom_zoom';
+const FETCH_TO      = 14000;  // ms
 
-// Video scaling modes for car head units & phone displays
+// Video scaling modes with automatic mirroring compensation for car head units & phones
 const SCALE_MODES = [
-  { id: 'contain', label: 'Вписать (По размеру)' },
-  { id: 'cover',   label: 'Заполнение экрана (Без полос)' },
-  { id: 'fill',    label: 'Растянуть (100% экрана)' },
-  { id: '16-9',    label: 'Формат 16:9' },
-  { id: '4-3',     label: 'Формат 4:3' },
+  { id: 'phone-contain', label: '📱 Телефон: По размеру (Вписать)', type: 'contain', scale: 1 },
+  { id: 'phone-cover',   label: '📱 Телефон: Заполнение (Зум)',      type: 'cover',   scale: 1 },
+  { id: 'car-16-9',      label: '🚗 Магнитола: 16:9 (Авто-компенсация)', type: 'car-auto', carRatio: 16 / 9 },
+  { id: 'car-1024',      label: '🚗 Магнитола: 1024×600 (Штатная)',   type: 'car-auto', carRatio: 1024 / 600 },
+  { id: 'car-fill',      label: '🚗 Магнитола: Растянуть (100%)',    type: 'fill',     scale: 1 },
+  { id: 'tv-4-3',        label: '📺 Формат 4:3 (Ретро)',             type: '4-3',      scale: 1 },
 ];
 let currentScaleIndex = 0;
 
@@ -1363,6 +1377,7 @@ let osdHideTimer = null;
 // ═══════════════════════════════════════════════════════════════════════════════
 // DOM REFS
 // ═══════════════════════════════════════════════════════════════════════════════
+const btnCarModeToggle = document.getElementById('btnCarModeToggle');
 const urlInput         = document.getElementById('urlInput');
 const loadBtn          = document.getElementById('loadBtn');
 const statusBanner     = document.getElementById('statusBanner');
@@ -1427,6 +1442,8 @@ const epgModalNext     = document.getElementById('epgModalNext');
 const settingsModal    = document.getElementById('settingsModal');
 const settingsModalClose = document.getElementById('settingsModalClose');
 const scaleModeSelect  = document.getElementById('scaleModeSelect');
+const customZoomSlider = document.getElementById('customZoomSlider');
+const customZoomVal    = document.getElementById('customZoomVal');
 const lowPerfToggle    = document.getElementById('lowPerfToggle');
 const btnReloadEpg     = document.getElementById('btnReloadEpg');
 const epgStatsText     = document.getElementById('epgStatsText');
@@ -2801,21 +2818,80 @@ btnPrev.addEventListener('click', prevChannel);
 btnNext.addEventListener('click', nextChannel);
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VIDEO SCALING & CAR DISPLAY (МАГНИТОЛА) ADAPTATION
+// VIDEO SCALING & CAR DISPLAY (МАГНИТОЛА) MIRRORING ADAPTATION
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calculates the exact compensation scale required to remove black bars
+ * when mirroring a phone screen onto a car head unit with a different aspect ratio.
+ */
+function calculateCarCompensationScale(targetRatio = 16 / 9) {
+  const w = Math.max(window.innerWidth, window.innerHeight);
+  const h = Math.min(window.innerWidth, window.innerHeight);
+  const phoneRatio = w / h; // e.g. 2400 / 1080 = 2.222
+
+  if (phoneRatio > targetRatio) {
+    // Phone screen is wider than car screen: scale up vertically to fill car display
+    return phoneRatio / targetRatio;
+  } else {
+    // Phone screen is taller/narrower: scale up horizontally
+    return targetRatio / phoneRatio;
+  }
+}
+
 function applyScaleMode(modeId, showNotification = false) {
   const mode = SCALE_MODES.find(m => m.id === modeId) || SCALE_MODES[0];
   currentScaleIndex = SCALE_MODES.findIndex(m => m.id === mode.id);
 
+  // Clear previous inline aspect ratio & classes
   videoPlayer.classList.remove('scale-contain', 'scale-cover', 'scale-fill', 'scale-16-9', 'scale-4-3');
-  videoPlayer.classList.add('scale-' + mode.id);
+  videoPlayer.style.aspectRatio = '';
+
+  const userZoom = parseFloat(localStorage.getItem(LS_CUSTOM_ZOOM) || '1.0');
+
+  if (mode.type === 'contain') {
+    videoPlayer.style.objectFit = 'contain';
+    videoPlayer.style.transform = userZoom !== 1.0 ? `scale(${userZoom})` : 'none';
+  } else if (mode.type === 'cover') {
+    videoPlayer.style.objectFit = 'cover';
+    videoPlayer.style.transform = userZoom !== 1.0 ? `scale(${userZoom})` : 'none';
+  } else if (mode.type === 'fill') {
+    videoPlayer.style.objectFit = 'fill';
+    videoPlayer.style.transform = userZoom !== 1.0 ? `scale(${userZoom})` : 'none';
+  } else if (mode.type === '4-3') {
+    videoPlayer.style.objectFit = 'fill';
+    videoPlayer.style.aspectRatio = '4 / 3';
+    videoPlayer.style.transform = userZoom !== 1.0 ? `scale(${userZoom})` : 'none';
+  } else if (mode.type === 'car-auto') {
+    // Dynamic car mirroring compensation: removes double black bars on car head units
+    const compensation = calculateCarCompensationScale(mode.carRatio);
+    const totalScale = (compensation * userZoom).toFixed(3);
+    videoPlayer.style.objectFit = 'contain';
+    videoPlayer.style.transform = `scale(${totalScale})`;
+  }
 
   localStorage.setItem(LS_SCALE, mode.id);
+
   if (scaleModeSelect && scaleModeSelect.value !== mode.id) {
     scaleModeSelect.value = mode.id;
   }
+
+  // Update Topbar Car Mode button badge
+  if (btnCarModeToggle) {
+    if (mode.id.startsWith('car-')) {
+      const label = mode.id === 'car-1024' ? '🚗 Авто (1024×600)' : '🚗 Авто (16:9)';
+      btnCarModeToggle.innerHTML = label;
+      btnCarModeToggle.classList.add('btn-primary');
+      btnCarModeToggle.classList.remove('btn-ghost');
+    } else {
+      btnCarModeToggle.innerHTML = '📱 Телефон';
+      btnCarModeToggle.classList.remove('btn-primary');
+      btnCarModeToggle.classList.add('btn-ghost');
+    }
+  }
+
   if (showNotification) {
-    showToast(`📐 Масштаб: ${mode.label}`);
+    showToast(mode.label, 2500);
   }
 }
 
@@ -2825,6 +2901,19 @@ function cycleScaleMode() {
   applyScaleMode(nextMode.id, true);
 }
 
+// Quick toggle between Phone and Car Mode via Topbar button
+function toggleCarMode() {
+  const currentMode = localStorage.getItem(LS_SCALE) || 'phone-contain';
+  if (currentMode.startsWith('car-')) {
+    applyScaleMode('phone-contain', true);
+  } else {
+    applyScaleMode('car-16-9', true);
+  }
+}
+
+if (btnCarModeToggle) {
+  btnCarModeToggle.addEventListener('click', toggleCarMode);
+}
 if (btnScale) {
   btnScale.addEventListener('click', cycleScaleMode);
 }
@@ -2833,10 +2922,23 @@ if (scaleModeSelect) {
     applyScaleMode(e.target.value, true);
   });
 }
+if (customZoomSlider) {
+  const savedZoom = parseFloat(localStorage.getItem(LS_CUSTOM_ZOOM) || '1.0');
+  customZoomSlider.value = savedZoom;
+  if (customZoomVal) customZoomVal.textContent = Math.round(savedZoom * 100) + '%';
+
+  customZoomSlider.addEventListener('input', e => {
+    const val = parseFloat(e.target.value);
+    localStorage.setItem(LS_CUSTOM_ZOOM, val.toString());
+    if (customZoomVal) customZoomVal.textContent = Math.round(val * 100) + '%';
+    const currentMode = localStorage.getItem(LS_SCALE) || 'phone-contain';
+    applyScaleMode(currentMode, false);
+  });
+}
 
 // Auto-adapt to display size changes (e.g. phone mirroring to car head unit or orientation change)
 function handleDisplayChange() {
-  const savedMode = localStorage.getItem(LS_SCALE) || 'contain';
+  const savedMode = localStorage.getItem(LS_SCALE) || 'phone-contain';
   applyScaleMode(savedMode, false);
 }
 window.addEventListener('resize', handleDisplayChange);
@@ -3064,7 +3166,7 @@ videoPlayer.addEventListener('playing', () => {
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 (function init() {
-  const savedScale = localStorage.getItem(LS_SCALE) || 'contain';
+  const savedScale = localStorage.getItem(LS_SCALE) || 'phone-contain';
   applyScaleMode(savedScale, false);
 
   const savedUrl = localStorage.getItem(LS_URL) || DEFAULT_PLAYLIST;
