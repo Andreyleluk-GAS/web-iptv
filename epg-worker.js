@@ -112,7 +112,14 @@ function parseXMLTVFast(xmlText, nowTs) {
     }
 
     const iconM = body.match(/<icon\s+src="([^"]+)"/i);
-    const icon = iconM ? iconM[1].trim() : '';
+    let icon = iconM ? iconM[1].trim() : '';
+    if (icon) {
+      if (icon.includes('epg.one/')) {
+        icon = icon.replace(/^https?:\/\/(?:cdn\.)?epg\.one\//i, 'https://cdn.epg.one/');
+      } else if (icon.startsWith('http://') && (icon.includes('it999.ru') || icon.includes('iptvx.one') || icon.includes('epg.pw'))) {
+        icon = icon.replace(/^http:\/\//i, 'https://');
+      }
+    }
 
     channels.push({ id, names, icon });
   }

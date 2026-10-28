@@ -2,7 +2,7 @@
 // Кеширует только оболочку (App Shell).
 // Потоки, плейлисты, прокси — всегда из сети.
 
-const CACHE_NAME = 'car-iptv-shell-v7';
+const CACHE_NAME = 'car-iptv-shell-v8';
 
 // Ресурсы App Shell для мгновенного старта
 const SHELL_ASSETS = [
@@ -45,24 +45,17 @@ self.addEventListener('fetch', event => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Не кешируем:
-  // 1. HLS сегменты и плейлисты (.m3u8, .ts)
-  // 2. CORS-прокси (codetabs, corsproxy.io, allorigins, workers.dev)
-  // 3. CDN-скрипты (hls.js)
-  // 4. Любые cross-origin запросы
-  const isMediaSegment = /\.(m3u8?|ts)(\?|$)/i.test(url.pathname);
-  const isCorsProxy    = /codetabs\.com|corsproxy\.io|allorigins\.win|cors\.sh|workers\.dev/i.test(url.hostname);
-  const isCDN          = url.hostname.includes('cdn.jsdelivr.net');
-  const isCrossOrigin  = url.origin !== self.location.origin;
-  // Не кешируем POST-запросы
-  const isNotGet       = req.method !== 'GET';
+  // 1. Игнорируем не-GET запросы
+  if (req.method !== 'GET') return;
 
-  if (isMediaSegment || isCorsProxy || isCDN || isCrossOrigin || isNotGet) {
-    event.respondWith(fetch(req));
-    return;
-  }
+  // 2. Игнорируем любые внешние запросы (иконки каналов epg.one, HLS-потоки, CORS-прокси, CDN).
+  // Браузер загружает их напрямую через нативный сетевой стек без ошибок SW.
+  if (url.origin !== self.location.origin) return;
 
-  // App Shell: cache-first → network fallback
+  // 3. Игнорируем потоковые сегменты и плейлисты
+  if (/\.(m3u8?|ts)(\?|$)/i.test(url.pathname)) return;
+
+  // 4. Только для локальных файлов приложения (App Shell): cache-first → network fallback
   event.respondWith(
     caches.match(req).then(cached => {
       if (cached) return cached;
@@ -73,7 +66,12 @@ self.addEventListener('fetch', event => {
         }
         return response;
       });
-    }).catch(() => caches.match('./index.html'))
+    }).catch(() => {
+      // Возвращаем index.html ТОЛЬКО при навигации по сайту, чтобы не ломать скрипты и картинки
+      if (req.mode === 'navigate') {
+        return caches.match('./index.html');
+      }
+    })
   );
 });
 

@@ -1469,6 +1469,26 @@ function showToast(msg, dur = 2400) {
   toastTimer = setTimeout(() => toast.classList.remove('show'), dur);
 }
 
+/** Sanitize logo URL: upgrade http to https for trusted hosts, rewrite epg.one to cdn.epg.one, and proxy insecure ones on HTTPS */
+function sanitizeLogoUrl(rawUrl) {
+  if (!rawUrl) return '';
+  let u = String(rawUrl).trim();
+
+  // epg.one 302-redirects to http://cdn.epg.one/... (insecure HTTP), which triggers Mixed Content block in browsers.
+  // Direct HTTPS cdn.epg.one works with valid SSL and returns 200 OK.
+  if (u.includes('epg.one/')) {
+    return u.replace(/^https?:\/\/(?:cdn\.)?epg\.one\//i, 'https://cdn.epg.one/');
+  }
+
+  if (window.location.protocol === 'https:' && u.startsWith('http://')) {
+    if (u.includes('it999.ru') || u.includes('iptvx.one') || u.includes('epg.pw')) {
+      return u.replace(/^http:\/\//i, 'https://');
+    }
+    return 'https://web-iptv.andreyleluk.workers.dev/proxy?url=' + encodeURIComponent(u);
+  }
+  return u;
+}
+
 async function fetchWithTimeout(url, timeoutMs = FETCH_TO) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -1607,7 +1627,8 @@ function parseM3U(text, baseUrl) {
       const name = commaIdx !== -1 ? line.substring(commaIdx + 1).trim() : `Канал ${chNum}`;
 
       const logoM = line.match(/tvg-logo=(?:"([^"]*)"|'([^']*)'|([^\s,>]+))/i);
-      const logo  = logoM ? (logoM[1] || logoM[2] || logoM[3] || '').trim() : '';
+      const rawLogo = logoM ? (logoM[1] || logoM[2] || logoM[3] || '').trim() : '';
+      const logo = sanitizeLogoUrl(rawLogo);
 
       const idM  = line.match(/tvg-id=(?:"([^"]*)"|'([^']*)'|([^\s,>]+))/i);
       const nmM  = line.match(/tvg-name=(?:"([^"]*)"|'([^']*)'|([^\s,>]+))/i);
@@ -1811,10 +1832,11 @@ function processEpgData(channels, programmes, sourceUrl, isLowPerf) {
   // 1. Index channel logos & names
   for (const ch of channels) {
     if (ch.icon) {
-      if (ch.id) epgLogos.set(ch.id, ch.icon);
+      const cleanIcon = sanitizeLogoUrl(ch.icon);
+      if (ch.id) epgLogos.set(ch.id, cleanIcon);
       if (ch.names) {
         for (const nm of ch.names) {
-          epgLogos.set(normChannelName(nm), ch.icon);
+          epgLogos.set(normChannelName(nm), cleanIcon);
         }
       }
     }
@@ -1873,10 +1895,10 @@ function updateEpgUI() {
   if (activeChannel) {
     updateOsdEpg(activeChannel);
     if (osdLogo && activeChannel.logo) {
-      osdLogo.innerHTML = `<img src="${activeChannel.logo}" alt="" onerror="this.parentElement.innerHTML='${logoFallbackHTML(activeChannel.number, activeChannel.name).replace(/'/g,'"')}'" loading="lazy">`;
+      osdLogo.innerHTML = `<img src="${sanitizeLogoUrl(activeChannel.logo)}" alt="" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML='${logoFallbackHTML(activeChannel.number, activeChannel.name).replace(/'/g,'"')}'" loading="lazy">`;
     }
     if (npLogo && activeChannel.logo) {
-      npLogo.innerHTML = `<img src="${activeChannel.logo}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='${npLogoFallbackHTML(activeChannel.number, activeChannel.name).replace(/'/g,'"')}'">`;
+      npLogo.innerHTML = `<img src="${sanitizeLogoUrl(activeChannel.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML='${npLogoFallbackHTML(activeChannel.number, activeChannel.name).replace(/'/g,'"')}'">`;
     }
     updateNpEpg();
   }
@@ -2235,9 +2257,10 @@ function makeChItem(ch) {
   logo.className = 'ch-logo';
   if (ch.logo) {
     const img = document.createElement('img');
-    img.src = ch.logo;
+    img.src = sanitizeLogoUrl(ch.logo);
     img.alt = '';
     img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
     img.onerror = () => { logo.innerHTML = chLogoFallbackHTML(ch.number, ch.name); };
     logo.appendChild(img);
   } else {
@@ -2307,8 +2330,12 @@ function refreshChannelEpgLines() {
 
     // Refresh logo if unified EPG icon is available
     const logoImg = div.querySelector('.ch-logo img');
-    if (logoImg && ch.logo && logoImg.src !== ch.logo) {
-      logoImg.src = ch.logo;
+    if (logoImg && ch.logo) {
+      const cleanLogo = sanitizeLogoUrl(ch.logo);
+      if (logoImg.src !== cleanLogo) {
+        logoImg.src = cleanLogo;
+        logoImg.referrerPolicy = 'no-referrer';
+      }
     }
 
     const epgLine = div.querySelector('.ch-epg');
@@ -2421,7 +2448,7 @@ function showOsd(ch) {
 
   // Logo
   if (ch.logo) {
-    osdLogo.innerHTML = `<img src="${ch.logo}" alt="" onerror="this.parentElement.innerHTML='${logoFallbackHTML(ch.number, ch.name).replace(/'/g,'"')}'" loading="lazy">`;
+    osdLogo.innerHTML = `<img src="${sanitizeLogoUrl(ch.logo)}" alt="" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML='${logoFallbackHTML(ch.number, ch.name).replace(/'/g,'"')}'" loading="lazy">`;
   } else {
     osdLogo.innerHTML = logoFallbackHTML(ch.number, ch.name);
   }
@@ -2611,7 +2638,7 @@ function playChannel(ch) {
   updateNpEpg();
 
   if (ch.logo) {
-    npLogo.innerHTML = `<img src="${ch.logo}" alt="" loading="lazy"
+    npLogo.innerHTML = `<img src="${sanitizeLogoUrl(ch.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer"
       onerror="this.parentElement.innerHTML='${npLogoFallbackHTML(ch.number, ch.name).replace(/'/g,'"')}'">`;
   } else {
     npLogo.innerHTML = npLogoFallbackHTML(ch.number, ch.name);
@@ -2739,8 +2766,8 @@ function playChannel(ch) {
   if (window.location.protocol !== 'file:' && 'mediaSession' in navigator) {
     try {
       const artwork = [];
-      if (ch.logo && (ch.logo.startsWith('http://') || ch.logo.startsWith('https://') || ch.logo.startsWith('data:') || ch.logo.startsWith('blob:'))) {
-        artwork.push({ src: ch.logo, sizes: '512x512', type: 'image/png' });
+      if (ch.logo) {
+        artwork.push({ src: sanitizeLogoUrl(ch.logo), sizes: '512x512', type: 'image/png' });
       } else {
         const iconUrl = new URL('icons/icon-512.png', window.location.href).href;
         if (iconUrl.startsWith('http:') || iconUrl.startsWith('https:') || iconUrl.startsWith('data:') || iconUrl.startsWith('blob:')) {
