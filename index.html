@@ -2513,10 +2513,14 @@ function playChannel(ch) {
   if (hls) { hls.destroy(); hls = null; }
   clearStatus();
 
+  // Resolve stream URL: on HTTPS, route insecure HTTP streams through Cloudflare proxy
+  // to avoid browser Mixed Content blocks
+  let streamUrl = ch.url;
+  if (window.location.protocol === 'https:' && ch.url.startsWith('http://')) {
+    streamUrl = 'https://web-iptv.andreyleluk.workers.dev/proxy?url=' + encodeURIComponent(ch.url);
+  }
+
   if (Hls.isSupported()) {
-    // Direct stream loading: NO proxy interceptors (pLoader/fLoader/xhrSetup).
-    // CORS proxies are strictly reserved for playlist.m3u8 and EPG XMLTV downloads.
-    // Video streams and fragments must be fetched directly.
     hls = new Hls({
       enableWorker:           true,
       lowLatencyMode:         true,
@@ -2534,7 +2538,7 @@ function playChannel(ch) {
       levelLoadingMaxRetry:   6,
       levelLoadingRetryDelay: 1000,
     });
-    hls.loadSource(ch.url);
+    hls.loadSource(streamUrl);
     hls.attachMedia(videoPlayer);
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -2601,7 +2605,7 @@ function playChannel(ch) {
     });
 
   } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-    videoPlayer.src = ch.url;
+    videoPlayer.src = streamUrl;
     videoPlayer.addEventListener('loadedmetadata', () => {
       videoSpinner.classList.remove('show');
       videoPlayer.play().catch(handlePlayError);
